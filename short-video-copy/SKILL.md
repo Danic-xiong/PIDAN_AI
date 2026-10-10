@@ -24,69 +24,92 @@ description: 为短视频配共鸣型口播文案。从演讲/访谈/脱口秀�
 
 ## 一、去哪里找值得学的视频（重要）
 
-### ❌ 不要凭记忆猜 video ID
-实测：凭记忆猜的 ID 大批量失效（unavailable / truncated / 429）。**这是浪费轮次的主要来源。**
+### 三条已验证路径（按稳定性排序）
 
-### ✅ 正确流程：先搜索拿真实链接，再抓
+| 路径 | 脚本 | 稳定性 | 说明 |
+|---|---|---|---|
+| **① TED 官方 transcript** | `ted_transcript.py` | ★★★★★ | 官方逐字稿，无字幕轨问题，无限流，含搜索 |
+| **② YouTube + youtube-transcript-api** | `yt_search.py` | ★★★★☆ | 实测 4/4 成功，比 yt-dlp 稳 |
+| **③ YouTube + yt-dlp** | `yt_sub.py` / `yt_search.py`降级 | ★★☆☆☆ | 容易触发 HTTP 429，仅作降级备用 |
 
-**第 1 步：WebSearch 找真实 URL 和 ID**
+---
 
-搜索词用「话题 + 演讲者 + 关键词」，例如：
-- `Dan Ariely "Are we in control of our own decisions" youtube`
-- `Tim Urban procrastination TED talk video id`
-- `认知偏差 演讲 youtube`
+### 路径①：TED 官方逐字稿（首选）
 
-**第 2 步：从搜索结果里提取 video ID**
-- YouTube 链接里 `v=` 后面那串 11 位字符
-- 搜索结果的 URL 里常含真实 YouTube 链接
-
-**第 3 步：用 yt_sub.py 抓**
 ```bash
-python yt_sub.py <video_id> en
+# 搜索 TED 讲座拿 slug
+python ted_transcript.py --list "procrastination" 5
+
+# 抓全文（自动存 subs/ted_<slug>.en.txt）
+python ted_transcript.py sir_ken_robinson_do_schools_kill_creativity
 ```
 
-### 备选路径：TED 官方 transcript（更可靠，不受限流影响）
+- 实现原理：transcript 页面的 `__NEXT_DATA__` 里内嵌完整逐字稿
+  （`props.pageProps.transcriptData.translation.paragraphs[].cues[].text`）
+- 实测：Sir Ken Robinson 演讲拿到 **105 段 / 17678 字**完整稿
+- **不要加 `?language=` 参数**——加了会破坏 `__NEXT_DATA__` 结构导致解析失败
+- UA 必须用简短的 `Mozilla/5.0 (Windows NT 10.0; Win64; x64)`，带完整 Chrome UA 会被 403 `Forbidden-UA`
+- TED-Ed 动画短片也在 TED 上，有逐字稿但较短（几千字）
 
-TED 官网提供官方逐字稿，不需要抓 YouTube：
+---
+
+### 路径②：YouTube 搜索 + transcript-api（主力 YouTube 路径）
+
+```bash
+# 只搜索候选
+python yt_search.py "dan ariely decision"
+
+# 搜索并抓取前 N 条字幕
+python yt_search.py --grab "tim urban procrastination" --n 3
 ```
-https://www.ted.com/talks/<slug>/transcript
-```
-例如：`https://www.ted.com/talks/dan_ariely_are_we_in_control_of_our_own_decisions/transcript`
 
-可用 WebFetch 读取。支持多语言（`?language=zh-CN`）。
+- 已内置 `search_youtube()`：解析 YouTube 搜索页 HTML 提取 videoId + 标题，**不需要 API key**
+- 抓取走 `youtube-transcript-api`（已装在隔离 venv），失败自动降级 yt-dlp
+- **不要预检字幕轨**：实测 `has_subs()` 预检与实际下载结果不一致，会误杀能抓到的视频。直接抓，失败就跳到下一条
+- 间隔 3 秒即可（比 yt-dlp 路径安全得多）
 
-**优先顺序**：
-1. 有官方 transcript → 用 WebFetch（快、无限制）
-2. 没有 → WebSearch拿 YouTube ID → yt_sub.py 抓
+---
 
-### 值得搜的方向和已验证可抓的 ID
+### ❌ 已知无效：Bo Burnham 官方频道
 
-| 方向 | 演讲者/关键词 | 已验证 ID |
+诊断结果为 `TranscriptsDisabled`（**内容方主动关闭字幕**），不是工具问题。
+他的视频（如 `1Rx_p3NW7gQ`、`ObOqq1knVxs`、`k1BneeJTDcU`、`xHotXbGZiFY`）全部无字幕轨。
+**同类风险**：部分版权方/官方频道会主动关字幕，遇错就换人，不要反复重试同一频道。
+
+### ✅ 喜剧/脱口秀推荐（字幕覆盖好，实测可抓）
+
+| 人物 | 搜索词 | 实测结果 |
 |---|---|---|
-| **认知偏差** | Dan Ariely、Adam Grant、Moran Cerf、Kahneman | `9X68dm92HVI`(Ariely 控制感) `fxbCHn6gE3U`(Grant precrastinator) `6dqNiSGo9yU`(Cerf 自由意志) |
-| **拖延/行动力** | Tim Urban | `arj7oStGLkU` |
-| **财富/赚钱** | Robert Kiyosaki | `abMQhaMdQu0` |
-| **创造力/教育** | Sir Ken Robinson | `iG9CE55wbtY` |
-| **毅力/天赋** | Angela Duckworth | `H14bBuluwB8` |
-| **演讲技巧** | 讲演讲本身的演讲 | `8S0FDjFBj8o` |
-| **睡眠/健康** | 睡眠科学 | `5MuIMqhT8DM` |
+| **George Carlin** | `george carlin money` / `life is precious` | 4/4 成功，最长 33624 字 |
+| **Richard Feynman** | `richard feyndnan cargo cult` | 2/2 成功，17576 / 21359 字 |
+| **Chris Rock** | `chris rock human race` | 2/3 成功，16k 字符左右 |
+| ~~Bo Burnham~~ | — | 字幕被官方关闭，不可用 |
+
+喜剧方向的价值在于**"把真话说得好笑的形态"**——学结构，不学段子。
+
+---
+
+### ❌ 不要凭记忆猜 video ID
+
+实测：凭记忆猜的 ID 大批量失效（unavailable / truncated / 429）。**这是浪费轮次的主要来源。**
+即使 `youtube-transcript-api` 报 `VideoUnavailable`，也要先确认这个 ID 是不是编的。
+真实流程一律走`yt_search.py <关键词>` 或 WebSearch。
 
 ### 还该覆盖的方向（下次优先）
 - **关系与沟通**：Chris Graydon、Ariel Goldstein、关系心理学
-- **脱口秀/喜剧**：George Carlin、Bo Burnham、Richard Ayoade、Ali Wong（学"把真话说得好笑"的形态）
 - **创业决策**：真实创业者访谈（Stripe、Airbnb 创始人访谈）
 - **习惯与改变**：James Clear、Wendell Berry
+- **金钱观**：George Carlin 的 money 专场已入库，可直接提炼
 
 ---
+
 
 ## 二、工作流程
 
 ### A. 学习模式（持续进行，不需要用户触发）
 
-1. **找素材**：WebSearch 找真实链接（见上）
-2. **抓字幕**：WebFetch TED transcript，或 yt_sub.py 抓 YouTube
-   - 一次不超过 5–6 条，避免 429
-   - 每次间隔 8–10 秒
+1. **找素材**：TED 用 `ted_transcript.py --list`；YouTube 用 `yt_search.py <关键词>`
+2. **抓全文**：TED 走官方 transcript；YouTube 走 transcript-api（间隔 3 秒）
 3. **读全文，提炼观点**：
    - 学的是**观点本身**，不是讲法
    - 筛选标准：和常识相反 + 有解释力 + 能引发自我认同
@@ -152,23 +175,39 @@ https://www.ted.com/talks/<slug>/transcript
 
 ## 四、工具
 
-### YouTube 字幕抓取
-- 脚本：`yt_sub.py`
-- 工具路径：`C:\Users\wenmin.xiong\.workbuddy\binaries\python\envs\default\Scripts\yt-dlp.exe`
-- 用法：`python yt_sub.py <video_id> en`（zh-Hans 也可）
-- 输出：`subs/<video_id>.<lang>.txt`
+全部脚本在工作区根目录：`C:\Users\wenmin.xiong\WorkBuddy\2026-10-10-09-56-03\`
 
-### TED 官方 transcript
-- 格式：`https://www.ted.com/talks/<slug>/transcript`
-- 用 WebFetch 读取，可加 `?language=zh-CN`
+| 脚本 | 用途 | 用法 |
+|---|---|---|
+| `ted_transcript.py` | TED 官方逐字稿（首选） | `python ted_transcript.py --list <关键词> 5`<br>`python ted_transcript.py <slug>` |
+| `yt_search.py` | YouTube 搜索 + 抓字幕 | `python yt_search.py <关键词>`<br>`python yt_search.py --grab <关键词> --n 3` |
+| `yt_sub.py` | 单条字幕（降级备用） | `python yt_sub.py <video_id> en` |
+
+Python 解释器（含 `youtube-transcript-api`）：
+```
+C:\Users\wenmin.xiong\.workbuddy\binaries\python\envs\default\Scripts\python.exe
+```
+
+### 抓取铁律（都是实测踩过的坑）
+- ❌ 凭记忆猜 video ID
+- ❌ TED transcript URL 加 `?language=` 参数（会破坏解析）
+- ❌ 用带完整 Chrome UA 抓 TED（403 Forbidden-UA），用简短 UA
+- ❌ 依赖 `has_subs()` 预检来决定跳过（与实际结果不一致，会误杀）
+- ✅ TED 抓取直连，不限流，可连续抓
+- ✅ YouTube 抓取间隔 3 秒，单次可抓多条
+- ✅ 遇 `TranscriptsDisabled` 直接换人，那是内容方关字幕
 
 ### 素材库位置
 - 字幕原文：`subs/`
+  - `subs/ted_<slug>.en.txt` — TED 官方稿
+  - `subs/<video_id>.<lang>.txt` — YouTube 字幕
 - 观点提炼与转化文案：工作区根目录各 HTML 文件
 
 ---
 
-## 五、已抓演讲清单（截至 2026-10-10）
+## 五、已抓演讲清单
+
+### YouTube 字幕
 
 | ID | 主题 | 核心观点 |
 |---|---|---|
@@ -181,6 +220,34 @@ https://www.ted.com/talks/<slug>/transcript
 | `H14bBuluwB8` | Angela Duckworth 毅力 | 毅力与天赋常常无关甚至相反 |
 | `8S0FDjFBj8o` | 演讲的演讲 | 装懂可伪造；没人愿意承认自己没听懂 |
 | `5MuIMqhT8DM` | 睡眠科学 | 睡眠不足的认知代价 |
+| `3AO2U16uoeI` | Tim Urban 停止拖延 | 394 段 |
+| `Rk5C149J9C0` | 拖延与行动 | 短稿 |
+
+### TED 官方稿（`subs/ted_*.txt`，质量最高，优先读）
+
+| slug | 主题 | 字数 |
+|---|---|---|
+| `sir_ken_robinson_do_schools_kill_creativity` | 创造力/教育 | 17678 / 105段 |
+| `ayelet_fishbach_4_proven_ways_to_kick_your_procrastination_habit` | 拖延习惯 | 23395 / 49段 |
+| `jon_youshaei_is_perfectionism_just_procrastination_in_disguise` | 完美主义=拖延 | 5884 |
+| `ted_ed_why_you_procrastinate_even_when_it_feels_bad` | 拖延机制 | 4508 |
+
+### 喜剧/脱口秀（学"把真话说得好笑的形态"）
+
+| ID | 人物 | 主题 | 字数 |
+|---|---|---|---|
+| `3Qlf0oCpWgQ` | George Carlin | money | **33624**（最长稿） |
+| `7N7njl6Ncnw` | George Carlin | 金钱观 | 3112 |
+| `AY95vuEjTTE` | George Carlin | Life Is Sacred | — |
+| `6MVABINRzN4` | George Carlin | A Modern Man | — |
+| `rH4YRYSOuKk` | George Carlin | Life Is Worth Losing（全长） | — |
+| `RtR_ECkqblg` | Richard Feynman | Cargo Cult | **17576** |
+| `HpE-Us8OZoM` | Richard Feynman | Cargo Cult Speech | **21359** |
+| `nEJP40vQ1xI` | Chris Rock | Human Race | 16419 |
+| `8xMwYKwXYvA` | Chris Rock | Human Race | 16294 |
+
+> **Feynman Cargo Cult 是金矿**：讲人做什么不思考就跟着做、把自己降级成cargo（货物）、
+> 嘴上说一套做一套却以为自己在解决问题——几乎可以直译成短视频共鸣文案。
 
 ---
 
