@@ -1,0 +1,7 @@
+# 迁移状态文件，非技能内容
+.disable_to_model_invocation_migration.json
+.model_invocation_to_override_migration.json
+
+# 系统文件
+.DS_Store
+Thumbs.db
